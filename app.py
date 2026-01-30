@@ -8,6 +8,8 @@ from functools import wraps
 import random
 import secrets
 import math
+import requests
+
 
 # -------------------------
 LOCALITY_CHOICES = [
@@ -232,7 +234,7 @@ def calculate_dynamic_pricing(base_price, service_type, date, time):
     surge += random.uniform(0, 0.3)
     surge = min(surge, 2.0)
 
-    labor_cost = round(base_price * surge, 2)
+    labor_cost = round(base_price*surge, 2)
     material_cost = round(base_price * 0.30, 2)
     subtotal = labor_cost + material_cost
     tax = round(subtotal * 0.18, 2)
@@ -398,14 +400,60 @@ def get_chatbot_response(message, user_id=None):
         'suggestions': ['Browse services', 'Get pricing', 'My account', 'Help']
     }
 
-def calculate_distance(lat1, lon1, lat2, lon2):
+# def calculate_distance(lat1, lon1, lat2, lon2):
     # Haversine
-    rlat1, rlon1, rlat2, rlon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlat = rlat2 - rlat1
-    dlon = rlon2 - rlon1
-    a = math.sin(dlat/2)**2 + math.cos(rlat1)*math.cos(rlat2)*math.sin(dlon/2)**2
-    c = 2 * math.asin(math.sqrt(a))
-    return 6371 * c
+    # rlat1, rlon1, rlat2, rlon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    # dlat = rlat2 - rlat1
+    # dlon = rlon2 - rlon1
+    # a = math.sin(dlat/2)**2 + math.cos(rlat1)*math.cos(rlat2)*math.sin(dlon/2)**2
+    # c = 2 * math.asin(math.sqrt(a))
+    # return 6371 * c
+
+def get_osrm_distance(lat1, lon1, lat2, lon2):
+    """
+    FREE road distance using OpenStreetMap OSRM
+    Returns (distance_km, duration_minutes)
+    """
+    url = (
+        f"https://router.project-osrm.org/route/v1/driving/"
+        f"{lon1},{lat1};{lon2},{lat2}?overview=false"
+    )
+    try:
+        r = requests.get(url, timeout=5)
+        data = r.json()
+        if data.get("code") != "Ok":
+            return None, None
+
+        route = data["routes"][0]
+        return round(route["distance"] / 1000, 2), round(route["duration"] / 60)
+    except Exception:
+        return None, None
+
+
+# def get_nearby_workers(customer_lat, customer_lon, service_type, radius_km=10):
+#     conn = get_db_connection()
+#     workers = conn.execute('''
+#         SELECT w.*, u.name, u.phone, u.locality, u.city,
+#                w.current_latitude, w.current_longitude, w.last_location_update
+#         FROM workers w
+#         JOIN users u ON w.user_id = u.id
+#         WHERE w.availability = 'available'
+#           AND w.skills LIKE ?
+#           AND w.current_latitude IS NOT NULL
+#           AND w.current_longitude IS NOT NULL
+#     ''', (f'%{service_type}%',)).fetchall()
+#     conn.close()
+
+#     nearby = []
+#     for w in workers:
+#         d = calculate_distance(customer_lat, customer_lon, w['current_latitude'], w['current_longitude'])
+#         if d <= radius_km:
+#             row = dict(w)
+#             row['distance_km'] = round(d, 2)
+#             row['distance_m'] = round(d * 1000, 0)
+#             nearby.append(row)
+#     nearby.sort(key=lambda x: x['distance_km'])
+#     return nearby
 
 def get_nearby_workers(customer_lat, customer_lon, service_type, radius_km=10):
     conn = get_db_connection()
@@ -421,15 +469,44 @@ def get_nearby_workers(customer_lat, customer_lon, service_type, radius_km=10):
     ''', (f'%{service_type}%',)).fetchall()
     conn.close()
 
-    nearby = []
+    # ---------- STEP 1: fast pre-filter (cheap & free) ----------
+    candidates = []
     for w in workers:
-        d = calculate_distance(customer_lat, customer_lon, w['current_latitude'], w['current_longitude'])
-        if d <= radius_km:
+        approx_km = (
+            ((customer_lat - w['current_latitude']) ** 2 +
+             (customer_lon - w['current_longitude']) ** 2) ** 0.5
+        ) * 111  # rough km estimate
+
+        if approx_km <= radius_km * 1.5:
+            candidates.append(w)
+
+    # Limit OSRM calls (VERY IMPORTANT)
+    candidates = candidates[:15]
+
+    # ---------- STEP 2: accurate OSRM distance ----------
+    nearby = []
+    for w in candidates:
+        dist_km, eta_min = get_osrm_distance(
+            customer_lat,
+            customer_lon,
+            w['current_latitude'],
+            w['current_longitude']
+        )
+        # print("OSRM CHECK → worker:", w['id'], "distance:", dist_km, "eta:", eta_min)
+
+
+        if dist_km is None:
+            continue
+
+        if dist_km <= radius_km:
             row = dict(w)
-            row['distance_km'] = round(d, 2)
-            row['distance_m'] = round(d * 1000, 0)
+            row['distance_km'] = dist_km
+            row['distance_m'] = round(dist_km * 1000)
+            row['eta_minutes'] = eta_min
             nearby.append(row)
-    nearby.sort(key=lambda x: x['distance_km'])
+
+    # Sort by ETA (better UX than straight distance)
+    nearby.sort(key=lambda x: x['eta_minutes'])
     return nearby
 
 def update_worker_location(worker_id, latitude, longitude):

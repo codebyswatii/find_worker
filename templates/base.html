@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Find My Worker{% endblock %}</title>
+    <title>{% block title %}Find Your Worker{% endblock %}</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer ></script>
     <style>
         .badge { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
         .badge-verified { background: #10b981; color: white; }
@@ -19,7 +21,7 @@
             <div class="flex justify-between items-center py-4">
                 <div class="flex items-center">
                     <i class="fas fa-tools text-white text-2xl mr-3"></i>
-                    <h1 class="text-white text-xl font-bold">Find My Worker</h1>
+                    <h1 class="text-white text-xl font-bold">Find Your Worker</h1>
                 </div>
                 <div class="flex items-center space-x-4">
                     {% if session.user_id %}
@@ -103,5 +105,7 @@
             </div>
         </div>
     </footer>
+    
 </body>
+
 </html>
