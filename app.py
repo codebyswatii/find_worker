@@ -1109,6 +1109,9 @@ def api_nearby_workers():
         'city': w['city'],
         'locality': w['locality'],
         'distance_km': w['distance_km'],
+        'latitude': w['current_latitude'],
+        'longitude': w['current_longitude'],
+        'eta_minutes': w.get('eta_minutes')
     } for w in results]
     return jsonify({'workers': workers})
 
